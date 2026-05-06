@@ -330,7 +330,7 @@ class _MasterInfoPageState extends State<MasterInfoPage> {
               ),
               child: const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
-                child: Text('Назначить IP контроллеру'),
+                child: Text('Назначить IP'),
               ),
             ),
           ),
