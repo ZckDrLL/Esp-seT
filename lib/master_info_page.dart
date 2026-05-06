@@ -339,16 +339,16 @@ class _MasterInfoPageState extends State<MasterInfoPage> {
           // Существующие кнопки (MAC, сообщения)
           ElevatedButton.icon(
             icon: const Icon(Icons.memory),
-            label: const Text('Показать найденные MAC-адреса'),
+            label: const Text('Показать доступные MAC-адреса'),
             onPressed: () =>
-                _showListDialog('Найденные MAC-адреса (STA)', slaves),
+                _showListDialog('Доступные MAC-адреса', slaves),
           ),
 
           const SizedBox(height: 24),
 
           Center(
             child: Text(
-              'Подключено подчинённых: $slaveCount',
+              'Доступно подчинённых: $slaveCount',
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,

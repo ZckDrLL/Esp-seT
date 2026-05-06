@@ -15,21 +15,16 @@ Map<String, dynamic> sampleMasterInfo() {
     "receivedData": "none",
     "foundSlaveMac": "AA:BB:CC:DD:EE:01",
     "slaveCount": 2,
-    "masterNodeId": "M_DEV-01",
-    "knownNodeIds": ["M_DEV-01", "S_DEV-01", "S_DEV-02"],
+    "masterNodeId": "M_R2-D2",
+    "knownNodeIds": ["M_R2-D2", "R2-D3_A"],
     "knownNodes": [
       {
-        "nodeId": "M_DEV-01",
+        "nodeId": "M_R2-D2",
         "role": "MASTER",
         "isMaster": true,
       },
       {
-        "nodeId": "S_DEV-01",
-        "role": "SLAVE",
-        "isMaster": false,
-      },
-      {
-        "nodeId": "S_DEV-02",
+        "nodeId": "R2-D3_A",
         "role": "SLAVE",
         "isMaster": false,
       },

@@ -167,21 +167,15 @@ class _MessengerPageState extends State<MessengerPage> {
 
       if (devMode.value && loaded.isEmpty) {
         addChat(
-          'M_DEV-01',
+          'M_R2-D2',
           isMaster: true,
-          subtitle: 'Мастер (муляж)',
+          subtitle: 'Мастер',
           isAvailableNow: true,
         );
         addChat(
-          'S_DEV-01',
+          'R2-D3_A',
           isMaster: false,
-          subtitle: 'Доступный контроллер (муляж)',
-          isAvailableNow: true,
-        );
-        addChat(
-          'S_DEV-02',
-          isMaster: false,
-          subtitle: 'Доступный контроллер (муляж)',
+          subtitle: 'Доступный контроллер',
           isAvailableNow: true,
         );
       }
@@ -213,8 +207,7 @@ class _MessengerPageState extends State<MessengerPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        error = 'Связь с ESP32 не установлена'
-        ;
+        error = 'Связь с ESP32 не установлена';
         loading = false;
       });
     }
