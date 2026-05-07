@@ -162,9 +162,9 @@ class BackendMessPacket {
 }
 
 class BackendMessBuilder {
-  static const int defaultChunkSize = 8;
+  static const int defaultChunkSize = 6;
   static const int defaultBurstCount = 10;
-  static const int defaultAckWindowMs = 5000;
+  static const int defaultAckWindowMs = 3000;
   static const String defaultDeliveryMode = 'burst_window';
 
   // Стартуем не с 1, чтобы после перезапуска приложения не плодить совпадения
