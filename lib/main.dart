@@ -77,11 +77,6 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
-  // Вспомогательная функция: забирает host из 'http://192.168.4.1' -> '192.168.4.1'
-  String _extractHost(String url) {
-    return url.replaceFirst(RegExp(r'^https?://'), '');
-  }
-
   Future<void> _primeChatCacheForIp(String ip) async {
     if (ip.isEmpty) return;
 
@@ -225,7 +220,6 @@ class _HomePageState extends State<HomePage> {
                   },
                   // itemBuilder формирует список пунктов условно — показываем master_info только если host == 192.168.4.1
                   itemBuilder: (ctx) {
-
                     final List<PopupMenuEntry<String>> items = [];
 
                     items.addAll([
@@ -665,8 +659,10 @@ class _HomePageState extends State<HomePage> {
               ValueListenableBuilder<bool>(
                 valueListenable: devMode,
                 builder: (ctx, dev, _) {
-                  final String host = _extractHost(esp32Manager.serverUrl);
-                  final bool showMasterInfo = (host == '192.168.4.1') || dev;
+                  final bool showMasterInfo =
+                      dev ||
+                      (serverAvailable &&
+                          esp32Manager.serverIp == '192.168.4.1');
 
                   if (!showMasterInfo) return const SizedBox.shrink();
 

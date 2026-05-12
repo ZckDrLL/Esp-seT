@@ -10,12 +10,12 @@ class ChatMessageRecord {
   final bool isSystem;
   final int timestampMs;
 
-  // Порядок появления сообщения в чате
+  // Для глобального чата и будущих snapshot-форматов:
+  // nodeId может быть id треда, а senderNodeId — реальный автор сообщения.
+  final String? senderNodeId;
+
   final int orderIndex;
-
-  // Время, когда сообщение было впервые показано в приложении
   final int displayTimestampMs;
-
   final int? msgId;
   final String? sourceIp;
   final String? deliveryState;
@@ -25,6 +25,7 @@ class ChatMessageRecord {
     required this.text,
     required this.isMe,
     required this.timestampMs,
+    this.senderNodeId,
     this.orderIndex = 0,
     int? displayTimestampMs,
     this.isSystem = false,
@@ -39,6 +40,7 @@ class ChatMessageRecord {
     bool? isMe,
     bool? isSystem,
     int? timestampMs,
+    String? senderNodeId,
     int? orderIndex,
     int? displayTimestampMs,
     int? msgId,
@@ -51,6 +53,7 @@ class ChatMessageRecord {
       isMe: isMe ?? this.isMe,
       isSystem: isSystem ?? this.isSystem,
       timestampMs: timestampMs ?? this.timestampMs,
+      senderNodeId: senderNodeId ?? this.senderNodeId,
       orderIndex: orderIndex ?? this.orderIndex,
       displayTimestampMs: displayTimestampMs ?? this.displayTimestampMs,
       msgId: msgId ?? this.msgId,
@@ -66,6 +69,7 @@ class ChatMessageRecord {
       'isMe': isMe,
       'isSystem': isSystem,
       'timestampMs': timestampMs,
+      'senderNodeId': senderNodeId,
       'orderIndex': orderIndex,
       'displayTimestampMs': displayTimestampMs,
       'msgId': msgId,
@@ -93,6 +97,7 @@ class ChatMessageRecord {
       isMe: json['isMe'] == true,
       isSystem: json['isSystem'] == true,
       timestampMs: timestampMs,
+      senderNodeId: json['senderNodeId']?.toString(),
       orderIndex: orderIndex,
       displayTimestampMs: displayTimestampMs > 0
           ? displayTimestampMs
@@ -108,7 +113,10 @@ class ChatMessageRecord {
   }
 
   String dedupeKey() {
-    return '${msgId ?? -1}|$nodeId|$isMe|$isSystem';
+    final author = (senderNodeId != null && senderNodeId!.trim().isNotEmpty)
+        ? senderNodeId!.trim()
+        : nodeId;
+    return '${msgId ?? -1}|$author|$isMe|$isSystem';
   }
 }
 
@@ -150,6 +158,7 @@ class ChatThreadRecord {
 }
 
 class ChatHistoryStore extends ChangeNotifier {
+  static const String globalThreadId = '__global__';
   ChatHistoryStore._();
 
   static final ChatHistoryStore instance = ChatHistoryStore._();
@@ -208,7 +217,23 @@ class ChatHistoryStore extends ChangeNotifier {
     }
 
     if (incoming.msgId != null) {
-      final idx = thread.messages.indexWhere((m) => m.msgId == incoming.msgId);
+      final incomingAuthor =
+          (incoming.senderNodeId != null &&
+              incoming.senderNodeId!.trim().isNotEmpty)
+          ? incoming.senderNodeId!.trim()
+          : incoming.nodeId;
+
+      final idx = thread.messages.indexWhere((m) {
+        if (m.msgId != incoming.msgId) return false;
+
+        final existingAuthor =
+            (m.senderNodeId != null && m.senderNodeId!.trim().isNotEmpty)
+            ? m.senderNodeId!.trim()
+            : m.nodeId;
+
+        return existingAuthor == incomingAuthor;
+      });
+
       if (idx >= 0) {
         final existing = thread.messages[idx];
 
@@ -219,6 +244,7 @@ class ChatHistoryStore extends ChangeNotifier {
           timestampMs: existing.timestampMs != 0
               ? existing.timestampMs
               : incoming.timestampMs,
+          senderNodeId: existing.senderNodeId ?? incoming.senderNodeId,
           orderIndex: existing.orderIndex > 0
               ? existing.orderIndex
               : incoming.orderIndex,
@@ -300,7 +326,14 @@ class ChatHistoryStore extends ChangeNotifier {
   List<String> dialogIds(String ip) {
     final perIp = _cacheByIp[ip];
     if (perIp == null) return <String>[];
-    return perIp.keys.toList()..sort();
+
+    final ids = perIp.keys.toList();
+    ids.sort((a, b) {
+      if (a == globalThreadId) return -1;
+      if (b == globalThreadId) return 1;
+      return a.toLowerCase().compareTo(b.toLowerCase());
+    });
+    return ids;
   }
 
   List<ChatMessageRecord> messages(String ip, String nodeId) {
@@ -395,8 +428,9 @@ class ChatHistoryStore extends ChangeNotifier {
     String ip,
     String nodeId,
     int msgId,
-    String deliveryState,
-  ) async {
+    String deliveryState, {
+    String? senderNodeId,
+  }) async {
     if (ip.isEmpty || nodeId.isEmpty) return;
     await ensureLoaded(ip);
 
@@ -410,7 +444,18 @@ class ChatHistoryStore extends ChangeNotifier {
       () => ChatThreadRecord(nodeId: nodeId),
     );
 
-    final idx = thread.messages.indexWhere((m) => m.msgId == msgId);
+    final idx = thread.messages.indexWhere((m) {
+      if (m.msgId != msgId) return false;
+      if (senderNodeId == null || senderNodeId.trim().isEmpty) return true;
+
+      final existingAuthor =
+          (m.senderNodeId != null && m.senderNodeId!.trim().isNotEmpty)
+          ? m.senderNodeId!.trim()
+          : m.nodeId;
+
+      return existingAuthor == senderNodeId.trim();
+    });
+
     if (idx < 0) return;
 
     thread.messages[idx] = thread.messages[idx].copyWith(
@@ -487,24 +532,37 @@ class ChatHistoryStore extends ChangeNotifier {
     );
 
     void ingestMessage(Map<String, dynamic> item) {
-      final nodeId =
-          (item['nodeId'] ??
-                  item['peerNodeId'] ??
-                  item['dstNodeId'] ??
-                  item['srcNodeId'] ??
-                  '')
+      final rawThreadId =
+          (item['threadId'] ?? item['roomId'] ?? item['chatId'] ?? '')
               .toString()
               .trim();
 
-      if (nodeId.isEmpty) return;
+      final rawSenderId =
+          (item['senderNodeId'] ??
+                  item['nodeId'] ??
+                  item['srcNodeId'] ??
+                  item['peerNodeId'] ??
+                  '')
+              .toString()
+              .trim();
 
       final text = (item['text'] ?? item['message'] ?? item['body'] ?? '')
           .toString();
 
       if (text.trim().isEmpty) return;
 
-      final isMe = item['isMe'] == true || item['fromMe'] == true;
-      final isSystem = item['isSystem'] == true;
+      final isGlobal =
+          rawThreadId == globalThreadId ||
+          rawThreadId == '*' ||
+          rawThreadId.toLowerCase() == 'global' ||
+          rawSenderId == '*' ||
+          (item['scope'] ?? '').toString().toLowerCase() == 'global';
+
+      final threadKey = isGlobal
+          ? globalThreadId
+          : (rawThreadId.isNotEmpty ? rawThreadId : rawSenderId);
+
+      if (threadKey.isEmpty) return;
 
       final timestampMs = (item['timestampMs'] is int)
           ? item['timestampMs'] as int
@@ -520,16 +578,19 @@ class ChatHistoryStore extends ChangeNotifier {
                 ? item['msgId'] as int
                 : int.tryParse(item['msgId'].toString()));
 
+      final bool isMe = item['isMe'] == true || item['fromMe'] == true;
+
       final record = ChatMessageRecord(
-        nodeId: nodeId,
+        nodeId: threadKey,
         text: text,
         isMe: isMe,
-        isSystem: isSystem,
+        isSystem: item['isSystem'] == true,
         timestampMs: timestampMs,
         displayTimestampMs: isMe
             ? timestampMs
             : DateTime.now().millisecondsSinceEpoch,
         msgId: msgId,
+        senderNodeId: rawSenderId.isEmpty ? null : rawSenderId,
         sourceIp: ip,
         deliveryState: item['deliveryState']?.toString(),
       );
@@ -558,7 +619,7 @@ class ChatHistoryStore extends ChangeNotifier {
           if (rawMsgs is List) {
             for (final msg in rawMsgs) {
               if (msg is Map<String, dynamic>) {
-                ingestMessage({...msg, 'nodeId': nodeId});
+                ingestMessage({...msg, 'threadId': nodeId});
               } else if (msg is Map) {
                 ingestMessage({
                   ...Map<String, dynamic>.from(msg),
@@ -575,7 +636,7 @@ class ChatHistoryStore extends ChangeNotifier {
           if (rawMsgs is List) {
             for (final msg in rawMsgs) {
               if (msg is Map<String, dynamic>) {
-                ingestMessage({...msg, 'nodeId': nodeId});
+                ingestMessage({...msg, 'threadId': nodeId});
               } else if (msg is Map) {
                 ingestMessage({
                   ...Map<String, dynamic>.from(msg),

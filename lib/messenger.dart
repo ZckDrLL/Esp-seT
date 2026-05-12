@@ -5,6 +5,10 @@ import 'esp32_manager.dart';
 import 'chat_history_store.dart';
 import 'tester.dart';
 
+const String _globalChatTitle = 'Глобальный чат';
+const String _globalChatSubtitle = 'Общий канал для всех пользователей';
+const String _globalChatThreadId = ChatHistoryStore.globalThreadId;
+
 class MessengerPage extends StatefulWidget {
   final Esp32Manager manager;
 
@@ -71,6 +75,7 @@ class _MessengerPageState extends State<MessengerPage> {
 
       void addChat(
         String nodeId, {
+        String? title,
         bool isMaster = false,
         String? subtitle,
         bool isAvailableNow = false,
@@ -90,10 +95,11 @@ class _MessengerPageState extends State<MessengerPage> {
           _serverIp,
           cleanId,
         );
+
         loaded.add(
           _ChatItem(
             nodeId: cleanId,
-            title: cleanId,
+            title: title ?? cleanId,
             subtitle:
                 subtitle ??
                 (cachedCount > 0
@@ -103,6 +109,13 @@ class _MessengerPageState extends State<MessengerPage> {
           ),
         );
       }
+
+      addChat(
+        _globalChatThreadId,
+        title: _globalChatTitle,
+        subtitle: _globalChatSubtitle,
+        isAvailableNow: true,
+      );
 
       // 1) мастер по прямому полю
       final String masterNodeId = normalize(info['masterNodeId']);
@@ -185,16 +198,20 @@ class _MessengerPageState extends State<MessengerPage> {
           const _ChatItem(
             nodeId: '',
             title: 'Нет доступных контроллеров',
-            subtitle: 'Подождите обнаружения узлов',
+            subtitle: 'Подождите обнаружения контроллеров',
             isMaster: false,
           ),
         );
       }
 
       loaded.sort((a, b) {
+        if (a.nodeId == _globalChatThreadId) return -1;
+        if (b.nodeId == _globalChatThreadId) return 1;
+
         if (a.isMaster != b.isMaster) {
           return a.isMaster ? -1 : 1;
         }
+
         return a.nodeId.toLowerCase().compareTo(b.nodeId.toLowerCase());
       });
 
@@ -217,7 +234,9 @@ class _MessengerPageState extends State<MessengerPage> {
     final ip = widget.manager.serverIp;
     if (ip.isEmpty) return;
 
-    final removed = await ChatHistoryStore.instance.clearAllForIp(ip);
+    final removed = await ChatHistoryStore.instance.clearThreadsExcept(ip, {
+      _globalChatThreadId,
+    });
 
     if (!mounted) return;
 
@@ -248,6 +267,7 @@ class _MessengerPageState extends State<MessengerPage> {
           subtitle: item.subtitle,
           backendBuilder: _backendBuilder,
           manager: widget.manager,
+          isGlobalChat: item.nodeId == _globalChatThreadId,
         ),
       ),
     );
@@ -358,6 +378,7 @@ class _ChatRoomPage extends StatefulWidget {
   final String serverIp;
   final String title;
   final String subtitle;
+  final bool isGlobalChat;
   final BackendMessBuilder backendBuilder;
   final Esp32Manager manager;
 
@@ -369,6 +390,7 @@ class _ChatRoomPage extends StatefulWidget {
     required this.subtitle,
     required this.backendBuilder,
     required this.manager,
+    required this.isGlobalChat,
   });
 
   @override
@@ -496,10 +518,11 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
   }
 
   String _bubbleKey(_MessageBubble m) {
+    final author = (m.senderNodeId ?? '').trim();
     if (m.msgId != null) {
-      return 'msg:${m.msgId}|${m.isMe}|${m.isSystem}';
+      return 'msg:${m.msgId}|$author|${m.isMe}|${m.isSystem}';
     }
-    return 'fallback:${m.orderIndex}|${m.isMe}|${m.isSystem}|${m.text}';
+    return 'fallback:${m.orderIndex}|${m.isMe}|${m.isSystem}|$author|${m.text}';
   }
 
   void _mergeMessages(
@@ -604,8 +627,9 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
         widget.nodeId,
       );
 
-      final String emptyPlaceholderText =
-          'Чат с узлом ${widget.nodeId} открыт.';
+      final String emptyPlaceholderText = widget.isGlobalChat
+          ? 'Глобальный чат открыт.'
+          : 'Чат с узлом ${widget.nodeId} открыт.';
       final loaded = <_MessageBubble>[];
 
       if (history.isEmpty) {
@@ -629,6 +653,7 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
               displayTimestampMs: item.displayTimestampMs,
               orderIndex: item.orderIndex,
               msgId: item.msgId,
+              senderNodeId: item.senderNodeId ?? item.nodeId,
               deliveryState: item.deliveryState,
             ),
           );
@@ -742,14 +767,19 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
       _messageController.clear();
       final sentAt = DateTime.now().millisecondsSinceEpoch;
       final nextOrderIndex = _nextBubbleOrderIndex(_visibleMessages);
+      final bool isGlobal = widget.isGlobalChat;
+      final String senderNodeId = widget.selfNodeId.isNotEmpty
+          ? widget.selfNodeId
+          : 'APP';
+
       final packet = widget.backendBuilder.buildPacket(
-        srcNodeId: widget.selfNodeId.isNotEmpty ? widget.selfNodeId : 'APP',
-        dstNodeId: widget.nodeId,
+        srcNodeId: senderNodeId,
+        dstNodeId: isGlobal ? '*' : widget.nodeId,
         text: text,
         chunkSize: BackendMessBuilder.defaultChunkSize,
         deliveryMode: BackendMessBuilder.defaultDeliveryMode,
-        burstCount: BackendMessBuilder.defaultBurstCount,
-        ackWindowMs: BackendMessBuilder.defaultAckWindowMs,
+        burstCount: isGlobal ? 12 : BackendMessBuilder.defaultBurstCount,
+        ackWindowMs: isGlobal ? 0 : BackendMessBuilder.defaultAckWindowMs,
       );
 
       if (devMode.value) {
@@ -782,6 +812,7 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
         displayTimestampMs: sentAt,
         orderIndex: nextOrderIndex,
         msgId: packet.msgId,
+        senderNodeId: senderNodeId,
         deliveryState: 'sending',
       );
 
@@ -795,10 +826,11 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
       await ChatHistoryStore.instance.upsertMessage(
         widget.serverIp,
         ChatMessageRecord(
-          nodeId: widget.nodeId,
+          nodeId: isGlobal ? _globalChatThreadId : widget.nodeId,
           text: text,
           isMe: true,
           timestampMs: sentAt,
+          senderNodeId: senderNodeId,
           msgId: packet.msgId,
           sourceIp: widget.serverIp,
           deliveryState: 'sending',
@@ -816,18 +848,28 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
       if (!outcome.success) {
         await ChatHistoryStore.instance.updateMessageDeliveryState(
           widget.serverIp,
-          widget.nodeId,
+          isGlobal ? _globalChatThreadId : widget.nodeId,
           packet.msgId,
           'failed',
+          senderNodeId: senderNodeId,
         );
-        _replaceVisibleMessageState(packet.msgId, 'failed');
 
+        _replaceVisibleMessageState(packet.msgId, 'failed');
         messenger?.showSnackBar(SnackBar(content: Text(outcome.message)));
       } else {
-        // Не переводим в sent сразу.
-        // Часы остаются до тех пор, пока сервер не завершит передачу
-        // и не примет последний ACK.
-        await _syncFromServer();
+        if (isGlobal) {
+          await ChatHistoryStore.instance.updateMessageDeliveryState(
+            widget.serverIp,
+            _globalChatThreadId,
+            packet.msgId,
+            'sent',
+            senderNodeId: senderNodeId,
+          );
+          _replaceVisibleMessageState(packet.msgId, 'sent');
+          await _syncFromServer();
+        } else {
+          await _syncFromServer();
+        }
       }
     } finally {
       _sendInProgress = false;
@@ -844,7 +886,11 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('${widget.title} • ${widget.nodeId}'),
+        title: Text(
+          widget.isGlobalChat
+              ? _globalChatTitle
+              : '${widget.title} • ${widget.nodeId}',
+        ),
         backgroundColor: const Color(0xFF579DDA),
         foregroundColor: Colors.white,
       ),
@@ -855,7 +901,7 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
             padding: const EdgeInsets.all(12),
             color: Colors.grey.shade100,
             child: Text(
-              widget.subtitle,
+              widget.isGlobalChat ? _globalChatSubtitle : widget.subtitle,
               style: TextStyle(color: Colors.grey.shade700),
             ),
           ),
@@ -911,6 +957,27 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
                                   ? CrossAxisAlignment.end
                                   : CrossAxisAlignment.start),
                         children: [
+                          if (widget.isGlobalChat) ...[
+                            Text(
+                              (msg.senderNodeId != null &&
+                                      msg.senderNodeId!.trim().isNotEmpty)
+                                  ? msg.senderNodeId!.trim()
+                                  : (msg.isMe && widget.selfNodeId.isNotEmpty
+                                        ? widget.selfNodeId
+                                        : 'unknown'),
+                              textAlign: msg.isMe
+                                  ? TextAlign.right
+                                  : TextAlign.left,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: msg.isMe
+                                    ? Colors.white70
+                                    : Colors.black54,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                          ],
                           Text(
                             msg.text,
                             textAlign: msg.isSystem
@@ -1029,6 +1096,7 @@ class _MessageBubble {
   final int displayTimestampMs;
   final int orderIndex;
   final int? msgId;
+  final String? senderNodeId;
   final String? deliveryState;
 
   const _MessageBubble({
@@ -1039,6 +1107,7 @@ class _MessageBubble {
     this.orderIndex = 0,
     this.isSystem = false,
     this.msgId,
+    this.senderNodeId,
     this.deliveryState,
   }) : displayTimestampMs = displayTimestampMs ?? timestampMs;
 
@@ -1050,6 +1119,7 @@ class _MessageBubble {
     int? displayTimestampMs,
     int? orderIndex,
     int? msgId,
+    String? senderNodeId,
     String? deliveryState,
   }) {
     return _MessageBubble(
@@ -1060,6 +1130,7 @@ class _MessageBubble {
       displayTimestampMs: displayTimestampMs ?? this.displayTimestampMs,
       orderIndex: orderIndex ?? this.orderIndex,
       msgId: msgId ?? this.msgId,
+      senderNodeId: senderNodeId ?? this.senderNodeId,
       deliveryState: deliveryState ?? this.deliveryState,
     );
   }
