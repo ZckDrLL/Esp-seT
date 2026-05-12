@@ -400,6 +400,28 @@ class _ChatRoomPage extends StatefulWidget {
 class _ChatRoomPageState extends State<_ChatRoomPage> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+
+  static const int _maxMessageLength = 350;
+  int _messageLength = 0;
+
+  bool get _isMessageTooLong => _messageLength > _maxMessageLength;
+
+  bool get _canSendMessage {
+    final text = _messageController.text.trim();
+    return text.isNotEmpty && !_sendInProgress && !_isMessageTooLong;
+  }
+
+  int _countSymbols(String text) => text.runes.length;
+
+  void _onMessageChanged() {
+    final newLength = _countSymbols(_messageController.text);
+    if (newLength == _messageLength) return;
+
+    setState(() {
+      _messageLength = newLength;
+    });
+  }
+
   // Настраиваемые цвета панели ввода сообщения
   static const Color _composerBackgroundColor = Color(0xFFF7F7F7);
   static const Color _composerBorderColor = Color(0xFFE3E3E3);
@@ -424,6 +446,8 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
   void initState() {
     super.initState();
     devMode.addListener(_onDevModeChanged);
+    _messageController.addListener(_onMessageChanged);
+    _onMessageChanged();
 
     if (devMode.value) {
       _resetDevConversation();
@@ -750,6 +774,7 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
   @override
   void dispose() {
     devMode.removeListener(_onDevModeChanged);
+    _messageController.removeListener(_onMessageChanged);
     _pollTimer?.cancel();
     _messageController.dispose();
     _scrollController.dispose();
@@ -759,8 +784,10 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
   Future<void> _sendMessage() async {
     if (_sendInProgress) return;
 
-    final text = _messageController.text.trim();
+    final rawText = _messageController.text;
+    final text = rawText.trim();
     if (text.isEmpty) return;
+    if (_countSymbols(rawText) > _maxMessageLength) return;
 
     _sendInProgress = true;
     try {
@@ -1061,6 +1088,7 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
                             vertical: 14,
                           ),
                         ),
+                        onChanged: (_) => _onMessageChanged(),
                         onSubmitted: (_) => _sendMessage(),
                       ),
                     ),
@@ -1071,10 +1099,14 @@ class _ChatRoomPageState extends State<_ChatRoomPage> {
                     height: 52,
                     child: FloatingActionButton(
                       heroTag: null,
-                      backgroundColor: _composerSendButtonColor,
-                      foregroundColor: _composerSendIconColor,
+                      backgroundColor: _canSendMessage
+                          ? _composerSendButtonColor
+                          : Colors.grey.shade400,
+                      foregroundColor: _canSendMessage
+                          ? _composerSendIconColor
+                          : Colors.white70,
                       elevation: 2,
-                      onPressed: _sendInProgress ? null : _sendMessage,
+                      onPressed: _canSendMessage ? _sendMessage : null,
                       child: const Icon(Icons.send),
                     ),
                   ),

@@ -189,6 +189,48 @@ class _MasterInfoPageState extends State<MasterInfoPage> {
     await _load();
   }
 
+  Future<void> _swapRoles() async {
+    final mac = slaveMacController.text.trim();
+
+    if (mac.isEmpty) {
+      await _showResultDialog('Ошибка', 'Введите MAC слейва.');
+      return;
+    }
+
+    if (!_isValidMac(mac)) {
+      await _showResultDialog(
+        'Ошибка',
+        'Введите корректный MAC (AA:BB:CC:DD:EE:FF или AABBCCDDEEFF).',
+      );
+      return;
+    }
+
+    final ok = await _confirm(
+      'Подтвердить',
+      'Сделать контроллер "$mac" мастером?\n'
+          'После отправки оба контроллера перезагрузятся.',
+    );
+    if (!ok) return;
+
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    final result = await widget.manager.swapRolesByMac(slaveMac: mac);
+
+    if (!mounted) return;
+
+    if (Navigator.canPop(context)) {
+      Navigator.of(context).pop();
+    }
+
+    await _showResultDialog('Результат', result);
+  }
+
   // Существующие кнопки: показать список MAC и сообщения
   void _showListDialog(String title, List<String> items) {
     showDialog(
@@ -334,14 +376,28 @@ class _MasterInfoPageState extends State<MasterInfoPage> {
               ),
             ),
           ),
+          const SizedBox(height: 12),
 
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _swapRoles,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF579DDA),
+                foregroundColor: Colors.white,
+              ),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text('Обмен ролей'),
+              ),
+            ),
+          ),
           const SizedBox(height: 20),
           // Существующие кнопки (MAC, сообщения)
           ElevatedButton.icon(
             icon: const Icon(Icons.memory),
             label: const Text('Показать доступные MAC-адреса'),
-            onPressed: () =>
-                _showListDialog('Доступные MAC-адреса', slaves),
+            onPressed: () => _showListDialog('Доступные MAC-адреса', slaves),
           ),
 
           const SizedBox(height: 24),

@@ -285,6 +285,34 @@ class Esp32Manager {
       return 'Ошибка: $e';
     }
   }
+
+  Future<String> swapRolesByMac({required String slaveMac}) async {
+    if (devMode.value) {
+      return simulateSend("Swap roles for $slaveMac");
+    }
+
+    final uri = Uri.parse(
+      '$serverUrl/swap_roles?slave_mac=${Uri.encodeComponent(slaveMac)}',
+    );
+
+    try {
+      final r = await http.get(uri).timeout(const Duration(seconds: 6));
+      developer.log(
+        'swapRolesByMac: HTTP ${r.statusCode} body: ${r.body}',
+        name: 'esp32_manager',
+        level: (r.statusCode == 200) ? 800 : 900,
+      );
+
+      if (r.statusCode == 200) {
+        return r.body.isNotEmpty ? r.body : 'Команда обмена ролей отправлена.';
+      }
+
+      return 'Ошибка HTTP ${r.statusCode}: ${r.body}';
+    } catch (e) {
+      return 'Ошибка: $e';
+    }
+  }
+
   // ------------------------------------------------------------------
   // Manage slave SSID patterns on the master
   // ------------------------------------------------------------------
